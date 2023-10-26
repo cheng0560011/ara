@@ -18,7 +18,7 @@ module ara_tb;
    *  Definitions  *
    *****************/
 
-  `ifndef VERILATOR
+  `ifdef VCS
   timeunit      1ns;
   timeprecision 1ps;
   `endif
@@ -75,7 +75,7 @@ module ara_tb;
   // This TB must be implemented in C for integration with Verilator.
   // In order to Verilator to understand that the ara_testharness module is the top-level,
   // we do not instantiate it when Verilating this module.
-  `ifndef VERILATOR
+  `ifdef VCS
   ara_testharness #(
     .NrLanes     (NrLanes         ),
     .AxiAddrWidth(AxiAddrWidth    ),
@@ -108,7 +108,11 @@ module ara_tb;
 
     // Initialize memories
     void'($value$plusargs("PRELOAD=%s", binary));
+
     if (binary != "") begin
+      $readmemh(binary, dut.i_ara_soc.i_dram.init_val);
+      
+    /*
       // Read ELF
       read_elf(binary);
       $display("Loading ELF file %s", binary);
@@ -132,10 +136,11 @@ module ara_tb;
             $display("Cannot initialize address %x, which doesn't fall into the L2 region.", address);
         end
       end
+    */
     end else begin
       $error("Expecting a firmware to run, none was provided!");
       $finish;
-    end
+   end
   end : dram_init
 
 `ifndef TARGET_GATESIM
@@ -264,6 +269,53 @@ module ara_tb;
     $dumpflush;
     $finish;
   end
+
+`endif
+
+// force dump waveform
+initial begin
+    $fsdbDumpfile("test.fsdb");
+    $fsdbDumpvars(0, dut, "+all");
+//    $fsdbDumpvars(0, dut.i_ara_soc.i_system.i_ariane.issue_stage_i.i_issue_read_operands.i_ariane_regfile);
+end
+
+`ifdef DUMP_PCLOG
+int fd_pclog;
+int fd_reg;
+int cycle_count;
+
+initial begin
+    fd_pclog=$fopen("pc.log","w");
+    if (fd_pclog) $display("File was opened successfully for pc log");
+    else   $display("File was NOT opened");
+    $fdisplay(fd_pclog, "Dump pc log (IF)");
+
+    fd_reg=$fopen("reg.log","w");
+    if (fd_reg) $display("File was opened successfully for register log");
+    else   $display("File was NOT opened");
+    $fdisplay(fd_reg, "Dump register (ariane_regfile)");
+
+    cycle_count = 0;
+
+end
+
+always @ (posedge clk) begin
+
+    cycle_count = cycle_count + 1;
+
+    $fdisplay(fd_pclog, "cycle=0x%h, pc=0x%8h, instr=0x%8h",
+		cycle_count,
+                dut.i_ara_soc.i_system.i_ariane.fetch_entry_if_id.address,
+                dut.i_ara_soc.i_system.i_ariane.fetch_entry_if_id.instruction,
+		);
+    $fdisplay(fd_reg, "cycle_count=0x%h, ", cycle_count);
+
+    for (int i = 0; i < 32; i++)
+	$fdisplay(fd_reg, "%d: 0x%h ",
+               i, 
+               dut.i_ara_soc.i_system.i_ariane.issue_stage_i.i_issue_read_operands.i_ariane_regfile.mem[i] );
+    
+end
 
 `endif
 
